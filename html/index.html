@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>three.js - misc - octree collisions</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="start">Start</button>
+    <div id="container"></div>
+    <script type="module">
+      import * as THREE from "../build/three.module.js";
+      import Stats from "./jsm/libs/stats.module.js";
+      import { GLTFLoader } from "./jsm/loaders/GLTFLoader.js";
+      import { Octree } from "./jsm/math/Octree.js";
+      import { Capsule } from "./jsm/math/Capsule.js";
+      const startButton = document.getElementById("start");
+      startButton.addEventListener("click", function () {
+        startButton.style.display = "none";
+        handleStartButtonClick();
+      });
+      function handleStartButtonClick() {
+        const clock = new THREE.Clock();
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x88ccff);
+
+        const camera = new THREE.PerspectiveCamera(
+          75,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000
+        );
+        camera.rotation.order = "YXZ";
+        camera.position.set(0, 25, 0);
+
+        const listener = new THREE.AudioListener();
+        // listener.setMasterVolume(1)
+        camera.add(listener);
+
+        scene.fog = new THREE.FogExp2(0x000000, 0.0025);
+
+        const ambientlight = new THREE.AmbientLight(0x6688cc);
+        scene.add(ambientlight);
+
+        const fillLight1 = new THREE.DirectionalLight(0xff9999, 0.5);
+        fillLight1.position.set(-1, 1, 2);
+        scene.add(fillLight1);
+
+        const fillLight2 = new THREE.DirectionalLight(0x8888ff, 0.2);
+        fillLight2.position.set(0, -1, 0);
+        scene.add(fillLight2);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffaa, 1.2);
+        directionalLight.position.set(-5, 25, -1);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.camera.near = 0.01;
+        directionalLight.shadow.camera.far = 500;
+        directionalLight.shadow.camera.right = 30;
+        directionalLight.shadow.camera.left = -30;
+        directionalLight.shadow.camera.top = 30;
+        directionalLight.shadow.camera.bottom = -30;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        directionalLight.shadow.radius = 4;
+        directionalLight.shadow.bias = -0.00006;
+        scene.add(directionalLight);
+
+        //   const light = new THREE.DirectionalLight(0xffffff);
+        //   light.position.set(0, 0.5, 1).normalize();
+        //   scene.add(light);
+
+        const sphere = new THREE.SphereGeometry(1, 1, 1);
+
+        const material1 = new THREE.MeshPhongMaterial({
+          color: 0xffaa00,
+          flatShading: true,
+          shininess: 0,
+        });
+        const material2 = new THREE.MeshPhongMaterial({
+          color: 0xff2200,
+          flatShading: true,
+          shininess: 0,
+        });
+
+        const audioLoader = new THREE.AudioLoader();
+
+        const mesh1 = new THREE.Mesh(sphere, material1);
+        mesh1.position.set(
+          -6.480836556009457,
+          3.8177833557128875,
+          1.6267434555955183
+        );
+        scene.add(mesh1);
+        const sound1 = new THREE.PositionalAudio(listener);
+        audioLoader.load("sounds/skycity.mp3", function (buffer) {
+          sound1.setBuffer(buffer);
+          sound1.setRefDistance(2);
+          sound1.setLoop(true);
+          sound1.setVolume(1);
+          sound1.play();
+        });
+        mesh1.add(sound1);
+
+        const mesh2 = new THREE.Mesh(sphere, material2);
+        mesh2.position.set(
+          5.485448525616167,
+          1.3258750627807745,
+          11.389986311621394
+        );
+        scene.add(mesh2);
+        const sound2 = new THREE.PositionalAudio(listener);
+        audioLoader.load("sounds/herodawn.mp3", function (buffer) {
+          sound2.setBuffer(buffer);
+          sound2.setRefDistance(2);
+          sound2.setLoop(true);
+          sound2.setVolume(1);
+          sound2.play();
+        });
+        mesh2.add(sound2);
+
+        // analysers
+
+        const analyser1 = new THREE.AudioAnalyser(sound1, 32);
+        const analyser2 = new THREE.AudioAnalyser(sound2, 32);
+
+        // global ambient audio
+
+        // const sound4 = new THREE.Audio(listener);
+        // audioLoader.load("sounds/position.wav", function (buffer) {
+        //   sound4.setBuffer(buffer);
+        //   sound4.setLoop(true);
+        //   sound4.setVolume(0.5);
+        //   sound4.play();
+        // });
+
+        //   const helper = new THREE.GridHelper(1000, 10, 0x444444, 0x444444);
+        //   helper.position.y = 0.1;
+        //   scene.add(helper);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+
+        const container = document.getElementById("container");
+
+        container.appendChild(renderer.domElement);
+
+        const stats = new Stats();
+        stats.domElement.style.position = "absolute";
+        stats.domElement.style.top = "0px";
+
+        container.appendChild(stats.domElement);
+
+        const GRAVITY = 30;
+
+        const NUM_SPHERES = 20;
+        const SPHERE_RADIUS = 0.2;
+
+        const sphereGeometry = new THREE.SphereGeometry(SPHERE_RADIUS, 32, 32);
+        const sphereMaterial = new THREE.MeshStandardMaterial({
+          color: 0x888855,
+          roughness: 0.8,
+          metalness: 0.5,
+        });
+
+        const spheres = [];
+        let sphereIdx = 0;
+
+        for (let i = 0; i < NUM_SPHERES; i++) {
+          const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+          sphere.castShadow = true;
+          sphere.receiveShadow = true;
+          scene.add(sphere);
+          spheres.push({
+            mesh: sphere,
+            collider: new THREE.Sphere(
+              new THREE.Vector3(0, -100, 0),
+              SPHERE_RADIUS
+            ),
+            velocity: new THREE.Vector3(),
+          });
+        }
+
+        const worldOctree = new Octree();
+        const playerCollider = new Capsule(
+          new THREE.Vector3(0, 0.35, 0),
+          new THREE.Vector3(0, 1, 0),
+          0.35
+        );
+        const playerVelocity = new THREE.Vector3();
+        const playerDirection = new THREE.Vector3();
+
+        let playerOnFloor = false;
+        const keyStates = {};
+        document.addEventListener("keydown", (event) => {
+          keyStates[event.code] = true;
+        });
+
+        document.addEventListener("keyup", (event) => {
+          keyStates[event.code] = false;
+        });
+
+        document.addEventListener("mousedown", () => {
+          document.body.requestPointerLock();
+          keyStates["click"] = true;
+        });
+
+        document.body.addEventListener("mousemove", (event) => {
+          if (document.pointerLockElement === document.body) {
+            camera.rotation.y -= event.movementX / 500;
+            camera.rotation.x -= event.movementY / 500;
+          }
+        });
+
+        window.addEventListener("resize", onWindowResize);
+        function onWindowResize() {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        document.addEventListener("mouseup", () => {
+          keyStates["click"] = false;
+        });
+        function updateAudio() {
+          material1.emissive.b = analyser1.getAverageFrequency() / 256;
+          material2.emissive.b = analyser2.getAverageFrequency() / 256;
+        }
+        function playerCollitions() {
+          const result = worldOctree.capsuleIntersect(playerCollider);
+          playerOnFloor = false;
+          if (result) {
+            playerOnFloor = result.normal.y > 0;
+            if (!playerOnFloor) {
+              playerVelocity.addScaledVector(
+                result.normal,
+                -result.normal.dot(playerVelocity)
+              );
+            }
+            playerCollider.translate(
+              result.normal.multiplyScalar(result.depth)
+            );
+          }
+        }
+        function updatePlayer(deltaTime) {
+          if (playerOnFloor) {
+            const damping = Math.exp(-3 * deltaTime) - 1;
+            playerVelocity.addScaledVector(playerVelocity, damping);
+          } else {
+            playerVelocity.y -= GRAVITY * deltaTime;
+          }
+          const deltaPosition = playerVelocity
+            .clone()
+            .multiplyScalar(deltaTime);
+          playerCollider.translate(deltaPosition);
+          playerCollitions();
+          camera.position.copy(playerCollider.end);
+        }
+        function spheresCollisions() {
+          for (let i = 0; i < spheres.length; i++) {
+            const s1 = spheres[i];
+            for (let j = i + 1; j < spheres.length; j++) {
+              const s2 = spheres[j];
+              const d2 = s1.collider.center.distanceToSquared(
+                s2.collider.center
+              );
+              const r = s1.collider.radius + s2.collider.radius;
+              const r2 = r * r;
+              if (d2 < r2) {
+                const normal = s1.collider
+                  .clone()
+                  .center.sub(s2.collider.center)
+                  .normalize();
+                const v1 = normal
+                  .clone()
+                  .multiplyScalar(normal.dot(s1.velocity));
+                const v2 = normal
+                  .clone()
+                  .multiplyScalar(normal.dot(s2.velocity));
+                s1.velocity.add(v2).sub(v1);
+                s2.velocity.add(v1).sub(v2);
+
+                const d = (r - Math.sqrt(d2)) / 2;
+
+                s1.collider.center.addScaledVector(normal, d);
+                s2.collider.center.addScaledVector(normal, -d);
+              }
+            }
+          }
+        }
+        function updateSpheres(deltaTime) {
+          spheres.forEach((sphere) => {
+            sphere.collider.center.addScaledVector(sphere.velocity, deltaTime);
+            const result = worldOctree.sphereIntersect(sphere.collider);
+            if (result) {
+              sphere.velocity.addScaledVector(
+                result.normal,
+                -result.normal.dot(sphere.velocity) * 1.5
+              );
+              sphere.collider.center.add(
+                result.normal.multiplyScalar(result.depth)
+              );
+            } else {
+              sphere.velocity.y -= GRAVITY * deltaTime;
+            }
+            const damping = Math.exp(-1.5 * deltaTime) - 1;
+            sphere.velocity.addScaledVector(sphere.velocity, damping);
+
+            spheresCollisions();
+
+            sphere.mesh.position.copy(sphere.collider.center);
+          });
+        }
+        function getForwardVector() {
+          camera.getWorldDirection(playerDirection);
+          playerDirection.y = 0;
+          playerDirection.normalize();
+
+          return playerDirection;
+        }
+
+        function getSideVector() {
+          camera.getWorldDirection(playerDirection);
+          playerDirection.y = 0;
+          playerDirection.normalize();
+          playerDirection.cross(camera.up);
+
+          return playerDirection;
+        }
+
+        function controls(deltaTime) {
+          const speed = 25;
+          if (playerOnFloor) {
+            if (keyStates["KeyW"] || keyStates["ArrowUp"]) {
+              playerVelocity.add(
+                getForwardVector().multiplyScalar(speed * deltaTime)
+              );
+            }
+            if (keyStates["KeyS"] || keyStates["ArrowDown"]) {
+              playerVelocity.add(
+                getForwardVector().multiplyScalar(-speed * deltaTime)
+              );
+            }
+            if (keyStates["KeyA"] || keyStates["ArrowLeft"]) {
+              playerVelocity.add(
+                getSideVector().multiplyScalar(-speed * deltaTime)
+              );
+            }
+            if (keyStates["KeyD"] || keyStates["ArrowRight"]) {
+              playerVelocity.add(
+                getSideVector().multiplyScalar(speed * deltaTime)
+              );
+            }
+            if (keyStates["Space"] || keyStates["click"]) {
+              console.log(
+                camera.position.x,
+                camera.position.y,
+                camera.position.z
+              );
+              playerVelocity.y = 15;
+            }
+          }
+        }
+        const loader = new GLTFLoader().setPath("./models/gltf/");
+        loader.load("collision-world.glb", (gltf) => {
+          scene.add(gltf.scene);
+          worldOctree.fromGraphNode(gltf.scene);
+          gltf.scene.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+              if (child.material.map) {
+                child.material.map.anisotropy = 8;
+              }
+            }
+          });
+          animate();
+        });
+        function animate() {
+          const deltaTime = Math.min(0.1, clock.getDelta());
+          controls(deltaTime);
+          updateAudio();
+          updatePlayer(deltaTime);
+          updateSpheres(deltaTime);
+          renderer.render(scene, camera);
+          stats.update();
+          requestAnimationFrame(animate);
+        }
+      }
+    </script>
+  </body>
+</html>
